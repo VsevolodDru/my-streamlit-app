@@ -124,10 +124,14 @@ def to_excel(df):
     return processed_data
 
 
+# Глобальные переменные для хранения DataFrame
+global_df = None
+global_excel_df = None
+
 # Основной интерфейс
 def main():
     """Основная функция Streamlit приложения."""
-    global global_df, global_excel_df # Используем global
+    global global_df, global_excel_df  # Объявляем глобальные переменные в начале функции
 
     st.title("🔍 Wildberries Analytics Pro")
     json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
@@ -135,7 +139,6 @@ def main():
 
     # Загрузка данных
     with st.spinner("Загрузка данных..."):
-        # Проверяем, загружены ли данные ранее
         if global_df is None:
             global_df = load_data(json_url)
         if global_excel_df is None:
@@ -155,7 +158,6 @@ def main():
     # Кнопка сброса кэша
     if st.button("Сбросить кэш"):
         st.cache_data.clear()
-        global global_df, global_excel_df
         global_df = None
         global_excel_df = None
         st.experimental_rerun()
