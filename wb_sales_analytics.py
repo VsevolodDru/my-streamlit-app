@@ -10,7 +10,6 @@ import io
 from openpyxl import Workbook
 import requests
 
-
 # Настройки страницы
 st.set_page_config(
     layout="wide",
@@ -19,13 +18,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # Глобальные переменные для хранения DataFrame
-# Это поможет избежать повторной загрузки и обработки данных,
-# если они уже были загружены и обработаны ранее.
 global_df = None
 global_excel_df = None
-
 
 # Загрузка данных из JSON файла по ссылке
 @st.cache_data(ttl=3600, max_entries=5)
@@ -78,7 +73,6 @@ def load_data(url):
         st.error(f"Ошибка при обработке данных: {str(e)}")
         return pd.DataFrame()
 
-
 # Загрузка данных из Excel файла
 @st.cache_data(ttl=3600, max_entries=5)
 def load_excel_data(url):
@@ -108,7 +102,6 @@ def load_excel_data(url):
         st.error(f"Ошибка при обработке Excel файла: {str(e)}")
         return pd.DataFrame()
 
-
 # Функция для создания Excel-файла из DataFrame (с удалением временных зон)
 def to_excel(df):
     """Преобразует DataFrame в Excel файл."""
@@ -122,11 +115,6 @@ def to_excel(df):
         df_copy.to_excel(writer, index=False, sheet_name='SalesData')
     processed_data = output.getvalue()
     return processed_data
-
-
-# Глобальные переменные для хранения DataFrame
-global_df = None
-global_excel_df = None
 
 # Основной интерфейс
 def main():
@@ -369,8 +357,8 @@ def main():
             hourly_revenue = filtered_df.groupby(filtered_df['Дата'].dt.hour)['Выручка'].sum().reset_index()
             hourly_revenue = hourly_revenue.rename(columns={'Дата': 'Час'})
             st.subheader("Выручка по часам")
-            fig = px.bar(hourly_revenue, x='Дата', y='Выручка',
-                         labels={'Выручка': 'Выручка, ₽', 'Дата': 'Час'},
+            fig = px.bar(hourly_revenue, x='Час', y='Выручка',
+                         labels={'Выручка': 'Выручка, ₽', 'Час': 'Час'},
                          title='Выручка по часам')
             st.plotly_chart(fig)
             st.dataframe(hourly_revenue.sort_values('Выручка', ascending=False))
@@ -400,7 +388,6 @@ def main():
             mime="text/csv",
             key='download-csv'
         )
-
 
 if __name__ == "__main__":
     main()
