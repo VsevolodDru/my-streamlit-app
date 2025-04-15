@@ -171,17 +171,16 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         revenue = filtered_df['Выручка'].sum()
-        st.metric("Выручка", f"{revenue:,.0f} ₽") # Оставили форматирование только для разделения тысяч
+        st.metric("Выручка", f"{revenue:,.0f} ₽")
     with col2:
-        sales_df = filtered_df # Используем уже отфильтрованный DataFrame
+        sales_df = filtered_df
         avg_check = revenue / sales_df['srid'].nunique() if sales_df['srid'].nunique() > 0 else 0
-        st.metric("Средний чек", f"{avg_check:,.0f} ₽") # Оставили форматирование только для разделения тысяч
+        st.metric("Средний чек", f"{avg_check:,.0f} ₽")
     with col3:
         st.metric("Количество заказов", sales_df['srid'].nunique())
     with col4:
-        # Рассчитываем средний СПП и округляем в большую сторону до двух знаков после запятой
         avg_spp = filtered_df['СПП'].mean()
-        if not pd.isna(avg_spp): # Проверяем, что avg_spp не NaN
+        if not pd.isna(avg_spp):
             avg_spp_rounded = np.ceil(avg_spp * 100) / 100
             st.metric("Средний СПП", f"{avg_spp_rounded:.2f}%")
         else:
@@ -230,7 +229,6 @@ def main():
             'Выручка': 'sum',
             'Цена': 'mean'
         }).nlargest(10, 'Выручка').reset_index()
-        # Создаем копию DataFrame для отображения
         top_items_display = top_items.copy()
         st.dataframe(top_items_display, height=500)
     
@@ -238,7 +236,6 @@ def main():
         st.subheader("Выручка в разрезах")
         total_revenue = filtered_df['Выручка'].sum()
         
-        # Функция для отображения деталей
         def show_details(df, level, value):
             st.write(f"Детали для {level}: {value}")
             if level == 'Бренд':
@@ -284,7 +281,6 @@ def main():
                 st.error("Неизвестный уровень детализации")
                 return
             
-            # Округление СПП и форматирование значений
             details['Средний СПП'] = np.ceil(details['Средний СПП'] * 100) / 100
             st.dataframe(details)
             st.download_button(
@@ -294,7 +290,6 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         
-        # Выручка по категориям
         category_revenue = filtered_df.groupby('Категория')['Выручка'].sum().reset_index()
         category_revenue['percent'] = (category_revenue['Выручка'] / total_revenue) * 100
         st.subheader("Выручка по категориям")
@@ -315,7 +310,6 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         
-        # Выручка по подкатегориям
         subcategory_revenue = filtered_df.groupby('Подкатегория')['Выручка'].sum().reset_index()
         subcategory_revenue['percent'] = (subcategory_revenue['Выручка'] / total_revenue) * 100
         st.subheader("Выручка по подкатегориям")
@@ -336,7 +330,6 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         
-        # Выручка по брендам
         brand_revenue = filtered_df.groupby('Бренд')['Выручка'].sum().reset_index()
         brand_revenue['percent'] = (brand_revenue['Выручка'] / total_revenue) * 100
         st.subheader("Выручка по брендам")
@@ -357,26 +350,29 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         
-        # Если выбран только один день, показываем выручку по часам
+        # Исправленный раздел анализа по часам
         if date_range[0] == date_range[1]:
             hourly_revenue = filtered_df.groupby(filtered_df['Дата'].dt.hour)['Выручка'].sum().reset_index()
-            hourly_revenue = hourly_revenue.rename(columns={'Дата': 'Час'})
-            st.subheader("Выручка по часам")
-            fig = px.bar(hourly_revenue, x='Дата', y='Выручка',
-                        labels={'Выручка': 'Выручка, ₽', 'Дата': 'Час'},
-                        title='Выручка по часам')
-            st.plotly_chart(fig)
-            st.dataframe(hourly_revenue.sort_values('Выручка', ascending=False))
-            st.download_button(
-                label="Скачать выручку по часам в Excel",
-                data=to_excel(hourly_revenue),
-                file_name="revenue_by_hour.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+            hourly_revenue = hourly_revenue.rename(columns={'index': 'Час'})
+            
+            if not hourly_revenue.empty:
+                st.subheader("Выручка по часам")
+                fig = px.bar(hourly_revenue, x='Час', y='Выручка',
+                            labels={'Выручка': 'Выручка, ₽', 'Час': 'Час'},
+                            title='Выручка по часам')
+                st.plotly_chart(fig)
+                st.dataframe(hourly_revenue.sort_values('Выручка', ascending=False))
+                st.download_button(
+                    label="Скачать выручку по часам в Excel",
+                    data=to_excel(hourly_revenue),
+                    file_name="revenue_by_hour.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            else:
+                st.warning("Нет данных за выбранный день для построения графика по часам")
     
     with st.expander("📌 Детализированные данные"):
         st.subheader("Исходные данные с фильтрами")
-        # Копируем DataFrame для форматирования без изменения исходных данных
         filtered_df_display = filtered_df.copy()
         st.dataframe(filtered_df_display.sort_values('Дата', ascending=False), height=300)
         st.download_button(
