@@ -130,7 +130,7 @@ def main():
         st.header("⏱ Период анализа")
         date_range = st.date_input(
             "Выберите даты",
-            [datetime(2025, 4, 9), datetime(2025, 4, 10)],
+            [datetime(2025, 4, 9), datetime(2030, 4, 10)],
             format="DD.MM.YYYY"
         )
         include_cancelled = st.checkbox("Учитывать отмены", value=False)
