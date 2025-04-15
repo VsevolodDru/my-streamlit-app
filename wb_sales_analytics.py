@@ -106,58 +106,64 @@ def main():
     st.title("🔍 Wildberries Analytics Pro")
     json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
     excel_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
-    
+
     with st.spinner("Загрузка данных..."):
         df = load_data(json_url)
         excel_df = load_excel_data(excel_url)
-    
+
     if df.empty:
         st.warning("Не удалось загрузить данные из JSON. Пожалуйста, попробуйте позже.")
         return
-    
+
     if excel_df.empty:
         st.warning("Не удалось загрузить данные из Excel. Пожалуйста, попробуйте позже.")
         return
-    
+
     # Объединение данных
     df = pd.merge(df, excel_df, on='Артикул', how='left')
-    
+
     if st.button("Сбросить кэш"):
         st.cache_data.clear()
         st.experimental_rerun()
-    
+
+    # Определяем минимальную и максимальную даты в данных
+    min_date = df['Дата'].min().date()
+    max_date = df['Дата'].max().date()
+
     with st.sidebar:
         st.header("⏱ Период анализа")
         date_range = st.date_input(
             "Выберите даты",
-            [datetime(2025, 4, 9), datetime(2030, 4, 10)],
+            [min_date, max_date],  # Устанавливаем диапазон по умолчанию на основе данных
+            min_value=min_date,    # Минимальная дата
+            max_value=max_date,    # Максимальная дата
             format="DD.MM.YYYY"
         )
         include_cancelled = st.checkbox("Учитывать отмены", value=False)
-        
+
         st.header("🗂 Фильтры")
         warehouse_type = st.multiselect(
             "Тип склада",
             options=df['Склад'].unique(),  # Используем 'Склад'
             default=df['Склад'].unique()[0] if len(df['Склад'].unique()) > 0 else []
         )
-    
+
     # Фильтруем данные по "Только продажи" и исключаем возвраты
     filtered_df = df[
          (df['Дата'].dt.date >= date_range[0]) &
          (df['Дата'].dt.date <= date_range[1]) &
          (~df['is_return'])]
-    
+
     # Обработка отмененных заказов
     if not include_cancelled:
         filtered_df = filtered_df[filtered_df['isCancel'] == False]
-    
+
     if warehouse_type:
         filtered_df = filtered_df[filtered_df['Склад'].isin(warehouse_type)]
-    
+
     duplicates = filtered_df.duplicated(subset=['srid']).sum()
     st.write(f"Количество дубликатов по srid: {duplicates}")
-    
+
     st.subheader("🔍 Диагностика данных")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -166,7 +172,7 @@ def main():
         st.metric("Уникальных srid", filtered_df['srid'].nunique())
     with col3:
         st.metric("Записей с возвратами", filtered_df['is_return'].sum())
-    
+
     st.header("📊 Ключевые показатели")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -186,9 +192,9 @@ def main():
             st.metric("Средний СПП", f"{avg_spp_rounded:.2f}%")
         else:
             st.metric("Средний СПП", "Данные отсутствуют")
-    
-    tab1, tab3, tab4 = st.tabs(["📈 Динамика", "📦 Товары", "💰 Детализация выручки"])
-    
+
+    tab1, tab4 = st.tabs(["📈 Динамика", "💰 Детализация выручки"])
+
     with tab1:
         st.subheader("Динамика продаж")
         freq = st.radio("Группировка", ["День", "Неделя", "Месяц"], horizontal=True)
@@ -197,7 +203,7 @@ def main():
             'Выручка': 'sum',
             'is_return': 'mean'
         }).reset_index()
-        
+
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=dynamic_df['Дата'],
@@ -212,32 +218,11 @@ def main():
             legend=dict(orientation="h", y=1.1)
         )
         st.plotly_chart(fig, use_container_width=True)
-    
-    with tab3:
-        st.subheader("Товарная аналитика")
-        top_brands = filtered_df.groupby('Бренд')['Выручка'].sum().nlargest(10).index
-        brand_filtered = filtered_df[filtered_df['Бренд'].isin(top_brands)]
-        fig = px.sunburst(
-            brand_filtered,
-            path=['Бренд', 'Категория'],
-            values='Выручка',
-            title="Структура продаж топ-10 брендов"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("Топ товаров")
-        top_items = filtered_df.groupby(['Бренд', 'Категория', 'Артикул', 'Наименование товара']).agg({
-            'Выручка': 'sum',
-            'Цена': 'mean'
-        }).nlargest(10, 'Выручка').reset_index()
-        # Создаем копию DataFrame для отображения
-        top_items_display = top_items.copy()
-        st.dataframe(top_items_display, height=500)
-    
+
     with tab4:
         st.subheader("Детализация выручки")
         total_revenue = filtered_df['Выручка'].sum()
-        
+
         # Функция для отображения деталей
         def show_details(df, level, value):
             st.write(f"Детали для {level}: {value}")
@@ -283,7 +268,7 @@ def main():
             else:
                 st.error("Неизвестный уровень детализации")
                 return
-            
+
             # Округление СПП и форматирование значений
             details['Средний СПП'] = np.ceil(details['Средний СПП'] * 100) / 100
             st.dataframe(details)
@@ -293,7 +278,7 @@ def main():
                 file_name=f"details_{level}_{value}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-        
+
         # Функция для вывода процентов и СПП
         def display_revenue_data(df, group_column, title):
             revenue_data = df.groupby(group_column).agg({
@@ -302,14 +287,14 @@ def main():
             }).reset_index()
             revenue_data['percent'] = (revenue_data['Выручка'] / total_revenue) * 100
             revenue_data = revenue_data.rename(columns={'СПП': 'Средний СПП'})  # Переименовываем столбец
-        
+
             st.subheader(title)
             fig = px.bar(revenue_data, x=group_column, y='Выручка',
                         hover_data=['percent', 'Средний СПП'],  # Добавляем СПП в hover data
                         labels={'percent': '% от общей выручки', 'Средний СПП': 'Средний СПП'},
                         title=title)
             st.plotly_chart(fig)
-            
+
             st.dataframe(revenue_data.sort_values('Выручка', ascending=False))
             st.download_button(
                 label=f"Скачать {title.lower()} в Excel",
@@ -333,7 +318,7 @@ def main():
         brand_revenue = display_revenue_data(filtered_df, 'Бренд', "Выручка по брендам")
         selected_brand = st.selectbox("Выберите бренд для просмотра деталей", brand_revenue['Бренд'].unique())
         show_details(filtered_df, 'Бренд', selected_brand)
-        
+
         # Если выбран только один день, показываем выручку по часам
         if date_range[0] == date_range[1]:
             hourly_revenue = filtered_df.groupby(filtered_df['Дата'].dt.hour)['Выручка'].sum().reset_index()
@@ -350,7 +335,7 @@ def main():
                 file_name="revenue_by_hour.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-    
+
     with st.expander("📌 Детализированные данные"):
         st.subheader("Исходные данные с фильтрами")
         # Копируем DataFrame для форматирования без изменения исходных данных
