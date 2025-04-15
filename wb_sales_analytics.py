@@ -125,14 +125,14 @@ def to_excel(df):
 
 
 # Основной интерфейс
- def main():
-  """Основная функция Streamlit приложения."""
-  global global_df, global_excel_df  # Объявляем global в начале функции
- 
+def main():
+    """Основная функция Streamlit приложения."""
+    global global_df, global_excel_df # Используем global
 
-  st.title("🔍 Wildberries Analytics Pro")
-  json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
-  excel_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
+    st.title("🔍 Wildberries Analytics Pro")
+    json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
+    excel_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
+
     # Загрузка данных
     with st.spinner("Загрузка данных..."):
         # Проверяем, загружены ли данные ранее
