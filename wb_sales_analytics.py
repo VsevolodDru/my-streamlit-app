@@ -187,7 +187,7 @@ def main():
         else:
             st.metric("Средний СПП", "Данные отсутствуют")
     
-    tab1, tab3, tab4 = st.tabs(["📈 Динамика", "📦 Товары", "💰 Выручка"])
+    tab1, tab3, tab4 = st.tabs(["📈 Динамика", "📦 Товары", "💰 Детализация выручки"])
     
     with tab1:
         st.subheader("Динамика продаж")
@@ -235,7 +235,7 @@ def main():
         st.dataframe(top_items_display, height=500)
     
     with tab4:
-        st.subheader("Выручка в разрезах")
+        st.subheader("Детализация выручки")
         total_revenue = filtered_df['Выручка'].sum()
         
         # Функция для отображения деталей
@@ -294,68 +294,45 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         
-        # Выручка по категориям
-        category_revenue = filtered_df.groupby('Категория')['Выручка'].sum().reset_index()
-        category_revenue['percent'] = (category_revenue['Выручка'] / total_revenue) * 100
-        st.subheader("Выручка по категориям")
-        fig = px.bar(category_revenue, x='Категория', y='Выручка',
-                    hover_data=['percent'],
-                    labels={'percent': '% от общей выручки'},
-                    title='Выручка по категориям')
-        st.plotly_chart(fig)
+        # Функция для вывода процентов и СПП
+        def display_revenue_data(df, group_column, title):
+            revenue_data = df.groupby(group_column).agg({
+                'Выручка': 'sum',
+                'СПП': 'mean'  # Добавляем расчет среднего СПП
+            }).reset_index()
+            revenue_data['percent'] = (revenue_data['Выручка'] / total_revenue) * 100
+            revenue_data = revenue_data.rename(columns={'СПП': 'Средний СПП'})  # Переименовываем столбец
         
+            st.subheader(title)
+            fig = px.bar(revenue_data, x=group_column, y='Выручка',
+                        hover_data=['percent', 'Средний СПП'],  # Добавляем СПП в hover data
+                        labels={'percent': '% от общей выручки', 'Средний СПП': 'Средний СПП'},
+                        title=title)
+            st.plotly_chart(fig)
+            
+            st.dataframe(revenue_data.sort_values('Выручка', ascending=False))
+            st.download_button(
+                label=f"Скачать {title.lower()} в Excel",
+                data=to_excel(revenue_data),
+                file_name=f"{title.lower().replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            return revenue_data  # Возвращаем DataFrame
+
+        # Выручка по категориям
+        category_revenue = display_revenue_data(filtered_df, 'Категория', "Выручка по категориям")
         selected_category = st.selectbox("Выберите категорию для просмотра деталей", category_revenue['Категория'].unique())
         show_details(filtered_df, 'Категория', selected_category)
-        
-        st.dataframe(category_revenue.sort_values('Выручка', ascending=False))
-        st.download_button(
-            label="Скачать выручку по категориям в Excel",
-            data=to_excel(category_revenue),
-            file_name="revenue_by_category.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        
+
         # Выручка по подкатегориям
-        subcategory_revenue = filtered_df.groupby('Подкатегория')['Выручка'].sum().reset_index()
-        subcategory_revenue['percent'] = (subcategory_revenue['Выручка'] / total_revenue) * 100
-        st.subheader("Выручка по подкатегориям")
-        fig = px.bar(subcategory_revenue, x='Подкатегория', y='Выручка',
-                    hover_data=['percent'],
-                    labels={'percent': '% от общей выручки'},
-                    title='Выручка по подкатегориям')
-        st.plotly_chart(fig)
-        
+        subcategory_revenue = display_revenue_data(filtered_df, 'Подкатегория', "Выручка по подкатегориям")
         selected_subcategory = st.selectbox("Выберите подкатегорию для просмотра деталей", subcategory_revenue['Подкатегория'].unique())
         show_details(filtered_df, 'Подкатегория', selected_subcategory)
-        
-        st.dataframe(subcategory_revenue.sort_values('Выручка', ascending=False))
-        st.download_button(
-            label="Скачать выручку по подкатегориям в Excel",
-            data=to_excel(subcategory_revenue),
-            file_name="revenue_by_subcategory.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        
+
         # Выручка по брендам
-        brand_revenue = filtered_df.groupby('Бренд')['Выручка'].sum().reset_index()
-        brand_revenue['percent'] = (brand_revenue['Выручка'] / total_revenue) * 100
-        st.subheader("Выручка по брендам")
-        fig = px.bar(brand_revenue, x='Бренд', y='Выручка',
-                    hover_data=['percent'],
-                    labels={'percent': '% от общей выручки'},
-                    title='Выручка по брендам')
-        st.plotly_chart(fig)
-        
+        brand_revenue = display_revenue_data(filtered_df, 'Бренд', "Выручка по брендам")
         selected_brand = st.selectbox("Выберите бренд для просмотра деталей", brand_revenue['Бренд'].unique())
         show_details(filtered_df, 'Бренд', selected_brand)
-        
-        st.dataframe(brand_revenue.sort_values('Выручка', ascending=False))
-        st.download_button(
-            label="Скачать выручку по брендам в Excel",
-            data=to_excel(brand_revenue),
-            file_name="revenue_by_brand.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
         
         # Если выбран только один день, показываем выручку по часам
         if date_range[0] == date_range[1]:
