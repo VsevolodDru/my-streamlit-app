@@ -13,6 +13,10 @@ import gc
 import logging
 from typing import Optional, Tuple
 import tempfile
+import os
+
+# Отключаем watcher для решения проблемы с inotify
+os.environ['STREAMLIT_SERVER_ENABLE_WATCHER'] = 'false'
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -439,23 +443,26 @@ def main():
                     st.error("Ошибка при анализе выручки")
     
     with st.expander("📁 Экспорт данных", expanded=False):
-    st.subheader("Отфильтрованные данные")
-    st.dataframe(
-        filtered_df.head(1000),
-        height=400,
-        use_container_width=True
-    )
-    
-    cols = st.columns(2)
-    cols[0].download_button(
-        label="📥 Excel (оптимизированный)",
-        data=to_excel(filtered_df),
-        file_name="wb_analytics.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    cols[1].download_button(
-        label="📥 CSV (сжатый)",
-        data=filtered_df.to_csv(index=False, encoding='utf-8').encode('utf-8'),
-        file_name="wb_analytics.csv",
-        mime="text/csv"
-    )
+        st.subheader("Отфильтрованные данные")
+        st.dataframe(
+            filtered_df.head(1000),
+            height=400,
+            use_container_width=True
+        )
+        
+        cols = st.columns(2)
+        cols[0].download_button(
+            label="📥 Excel (оптимизированный)",
+            data=to_excel(filtered_df),
+            file_name="wb_analytics.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        cols[1].download_button(
+            label="📥 CSV (сжатый)",
+            data=filtered_df.to_csv(index=False, encoding='utf-8').encode('utf-8'),
+            file_name="wb_analytics.csv",
+            mime="text/csv"
+        )
+
+if __name__ == "__main__":
+    main()
