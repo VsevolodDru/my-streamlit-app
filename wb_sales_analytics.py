@@ -47,22 +47,17 @@ class DataLoader:
                 logger.error(f"Attempt {attempt + 1} failed: {str(e)}\n{traceback.format_exc()}")
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY)
-        return pd.DataFrame()  # Возвращаем пустой DataFrame вместо None
+        return pd.DataFrame()
 
     @staticmethod
     def load_large_json(url: str) -> pd.DataFrame:
         try:
             logger.info(f"Starting JSON load from {url}")
             
-            # Проверка доступности URL
-            try:
-                with requests.head(url, timeout=10) as r:
-                    if r.status_code != 200:
-                        st.error(f"URL недоступен. Код статуса: {r.status_code}")
-                        return pd.DataFrame()
-            except requests.RequestException as e:
-                st.error(f"Ошибка подключения к {url}: {str(e)}")
-                return pd.DataFrame()
+            with requests.head(url, timeout=10) as r:
+                if r.status_code != 200:
+                    st.error(f"URL недоступен. Код статуса: {r.status_code}")
+                    return pd.DataFrame()
 
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -223,11 +218,13 @@ class DataLoader:
 def main():
     # Инициализация состояния
     if 'data_loaded' not in st.session_state:
-        st.session_state.data_loaded = False
-        st.session_state.load_error = None
-        st.session_state.df = pd.DataFrame()  # Инициализируем пустым DataFrame
-        st.session_state.excel_df = pd.DataFrame()
-        st.session_state.filtered_df = pd.DataFrame()
+        st.session_state.update({
+            'data_loaded': False,
+            'load_error': None,
+            'df': pd.DataFrame(),
+            'excel_df': pd.DataFrame(),
+            'filtered_df': pd.DataFrame()
+        })
 
     st.title("🔍 Wildberries Analytics Pro")
     
@@ -237,16 +234,16 @@ def main():
         "excel": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
     }
 
-    # Загрузка данных (если еще не загружены)
+    # Загрузка данных
     if not st.session_state.data_loaded and st.session_state.load_error is None:
         with st.spinner("Загрузка данных. Пожалуйста, подождите..."):
             try:
                 json_data = DataLoader.load_with_retry(DATA_SOURCES["json"], DataLoader.load_large_json)
                 
-                if json_data is not None and not json_data.empty:
+                if not json_data.empty:
                     excel_data = DataLoader.load_with_retry(DATA_SOURCES["excel"], DataLoader.load_excel_data)
                     
-                    if excel_data is not None and not excel_data.empty:
+                    if not excel_data.empty:
                         try:
                             merged_df = pd.merge(
                                 json_data,
@@ -254,16 +251,20 @@ def main():
                                 on='Артикул',
                                 how='left'
                             )
-                            st.session_state.df = merged_df
-                            st.session_state.excel_df = excel_data
-                            st.session_state.data_loaded = True
-                            st.session_state.load_error = None
+                            st.session_state.update({
+                                'df': merged_df,
+                                'excel_df': excel_data,
+                                'data_loaded': True,
+                                'load_error': None
+                            })
                         except Exception as e:
                             st.session_state.load_error = f"Ошибка объединения данных: {str(e)}"
                     else:
-                        st.session_state.df = json_data
-                        st.session_state.data_loaded = True
-                        st.session_state.load_error = "Не удалось загрузить Excel данные"
+                        st.session_state.update({
+                            'df': json_data,
+                            'data_loaded': True,
+                            'load_error': "Не удалось загрузить Excel данные"
+                        })
                 else:
                     st.session_state.load_error = "Не удалось загрузить основные данные"
                     
@@ -276,13 +277,14 @@ def main():
         st.error(f"Ошибка загрузки данных: {st.session_state.load_error}")
         
         if st.button("Попробовать снова"):
-            st.session_state.data_loaded = False
-            st.session_state.load_error = None
-            st.experimental_rerun()
+            st.session_state.update({
+                'data_loaded': False,
+                'load_error': None
+            })
+            st.rerun()
         
         st.stop()
     
-    # Если данные не загружены (но и ошибки нет)
     if not st.session_state.data_loaded:
         st.warning("Данные еще загружаются...")
         st.stop()
@@ -293,9 +295,11 @@ def main():
 
     # Кнопка перезагрузки данных
     if st.button("🔄 Обновить данные"):
-        st.session_state.data_loaded = False
-        st.session_state.load_error = None
-        st.experimental_rerun()
+        st.session_state.update({
+            'data_loaded': False,
+            'load_error': None
+        })
+        st.rerun()
 
     # Безопасное получение дат
     try:
@@ -400,7 +404,7 @@ def main():
     # Получаем отфильтрованные данные
     filtered_df = st.session_state.get('filtered_df', pd.DataFrame())
     
-    if filtered_df is None or filtered_df.empty:
+    if filtered_df.empty:
         st.warning("Нет данных для отображения. Измените параметры фильтров.")
         st.stop()
 
