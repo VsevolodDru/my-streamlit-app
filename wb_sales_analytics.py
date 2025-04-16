@@ -78,7 +78,9 @@ def load_large_json(url: str) -> pd.DataFrame:
         datetime_cols = ['date', 'lastChangeDate']
         for col in datetime_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col].dt.tz_localize('Europe/Moscow'))
+                # Сначала конвертируем в datetime, затем применяем tz_localize
+                df[col] = pd.to_datetime(df[col])
+                df[col] = df[col].dt.tz_localize('Europe/Moscow')
         
         df['is_return'] = df.get('srid', '').str.startswith('R')
         df['revenue'] = df['totalPrice']
