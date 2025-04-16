@@ -5,3 +5,4 @@ numpy
 openpyxl
 requests
 pytz
+ijson
