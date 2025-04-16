@@ -13,7 +13,6 @@ import gc
 import logging
 from typing import Optional, Tuple
 import tempfile
-import ijson  # Для потоковой обработки JSON
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -22,13 +21,13 @@ logger = logging.getLogger(__name__)
 # Конфигурация страницы
 st.set_page_config(
     layout="wide",
-    page_title="WB Analytics Pro (Optimized)",
+    page_title="WB Analytics Pro",
     page_icon="📈",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': 'https://example.com',
         'Report a bug': "https://example.com",
-        'About': "# Оптимизированная аналитика Wildberries с поддержкой больших файлов"
+        'About': "# Оптимизированная аналитика Wildberries"
     }
 )
 
@@ -37,16 +36,16 @@ MAX_JSON_SIZE_MB = 500  # Лимит для предупреждения
 JSON_LOAD_TIMEOUT = 600  # 10 минут
 CHUNK_SIZE = 1024 * 1024  # 1MB для потоковой обработки
 
-# Глобальные переменные с аннотацией типов
-global_df: Optional[pd.DataFrame] = None
-global_excel_df: Optional[pd.DataFrame] = None
+# Глобальные переменные
+global_df = None
+global_excel_df = None
 
 # Оптимизированная загрузка больших JSON файлов
 @st.cache_data(ttl=3600, max_entries=3, show_spinner="Загрузка данных...")
 def load_large_json(url: str) -> pd.DataFrame:
-    """Загружает и обрабатывает большие JSON файлы с потоковой обработкой"""
+    """Загружает и обрабатывает большие JSON файлы с помощью стандартного модуля json"""
     try:
-        logger.info(f"Начало загрузки большого JSON файла из {url}")
+        logger.info(f"Начало загрузки JSON файла из {url}")
         
         # Проверка размера файла
         with requests.head(url, timeout=10) as r:
@@ -58,88 +57,89 @@ def load_large_json(url: str) -> pd.DataFrame:
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Создаем временный файл для потоковой обработки
-        with tempfile.NamedTemporaryFile(mode='w+b') as tmp_file:
-            # Загрузка файла с прогрессом
-            with requests.get(url, stream=True, timeout=(30, JSON_LOAD_TIMEOUT)) as response:
-                response.raise_for_status()
-                total_size = int(response.headers.get('content-length', 0))
-                downloaded = 0
-                
-                for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
-                    tmp_file.write(chunk)
-                    downloaded += len(chunk)
-                    progress = min(downloaded / total_size, 1.0) if total_size > 0 else 0
-                    progress_bar.progress(progress)
-                    status_text.text(f"Загружено: {downloaded/(1024*1024):.1f} МБ / {total_size/(1024*1024):.1f} МБ")
+        # Загрузка файла по частям
+        response = requests.get(url, stream=True, timeout=(30, JSON_LOAD_TIMEOUT))
+        response.raise_for_status()
+        
+        # Собираем данные в буфер
+        chunks = []
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        
+        for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+            chunks.append(chunk)
+            downloaded += len(chunk)
+            progress = min(downloaded / total_size, 1.0) if total_size > 0 else 0
+            progress_bar.progress(progress)
+            status_text.text(f"Загружено: {downloaded/(1024*1024):.1f} МБ / {total_size/(1024*1024):.1f} МБ")
+        
+        # Десериализация JSON
+        status_text.text("Обработка JSON...")
+        data = json.loads(b''.join(chunks).decode('utf-8'))
+        
+        # Конвертация в DataFrame с оптимизацией памяти
+        df = pd.DataFrame(data)
+        
+        # Преобразование данных
+        datetime_cols = ['date', 'lastChangeDate']
+        for col in datetime_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col]).dt.tz_localize('Europe/Moscow')
+        
+        # Оптимизация типов данных
+        df['is_return'] = df.get('srid', '').str.startswith('R')
+        df['revenue'] = df['totalPrice']
+        df['week'] = df['date'].dt.isocalendar().week
+        df['month'] = df['date'].dt.month
+        df['isCancel'] = df.get('isCancel', False)
 
-            # Потоковый парсинг JSON с помощью ijson
-            tmp_file.seek(0)
-            items = []
-            status_text.text("Обработка JSON...")
-            
-            # Адаптируйте 'item' под структуру вашего JSON
-            for item in ijson.items(tmp_file, 'item'):
-                items.append({
-                    'date': item.get('date'),
-                    'warehouseType': item.get('warehouseType'),
-                    'regionName': item.get('regionName'),
-                    'category': item.get('category'),
-                    'brand': item.get('brand', '').lower(),
-                    'subject': item.get('subject'),
-                    'totalPrice': float(item.get('totalPrice', 0)),
-                    'spp': float(item.get('spp', 0)),
-                    'supplierArticle': str(item.get('supplierArticle', '')),
-                    'is_return': str(item.get('srid', '')).startswith('R'),
-                    'isCancel': bool(item.get('isCancel', False)),
-                    'srid': item.get('srid')
-                })
-                
-                # Лимит для демонстрации (можно убрать в продакшене)
-                if len(items) % 100000 == 0:
-                    status_text.text(f"Обработано записей: {len(items)}")
-            
-            # Создаем DataFrame
-            df = pd.DataFrame(items)
-            
-            # Оптимизация типов данных
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date']).dt.tz_localize('Europe/Moscow')
-            
-            # Русские названия столбцов
-            column_mapping = {
-                'date': 'Дата',
-                'warehouseType': 'Склад',
-                'regionName': 'Регион',
-                'category': 'Категория',
-                'brand': 'Бренд',
-                'subject': 'Подкатегория',
-                'totalPrice': 'Цена',
-                'spp': 'СПП',
-                'supplierArticle': 'Артикул'
-            }
-            df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
-            
-            # Оптимизация артикулов
-            if 'Артикул' in df.columns:
-                df['Артикул'] = df['Артикул'].apply(
-                    lambda x: x[:len(x)//2] if len(x) == 20 and x[:10] == x[10:] else x
-                )
-            
-            logger.info(f"Успешно загружено {len(df)} записей")
-            return df
-            
+        # Русские названия столбцов
+        column_mapping = {
+            'date': 'Дата',
+            'warehouseType': 'Склад',
+            'regionName': 'Регион',
+            'category': 'Категория',
+            'brand': 'Бренд',
+            'subject': 'Подкатегория',
+            'totalPrice': 'Цена',
+            'revenue': 'Выручка',
+            'spp': 'СПП',
+            'supplierArticle': 'Артикул'
+        }
+        df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+
+        # Оптимизация строковых данных
+        str_cols = ['Бренд', 'Артикул', 'Категория', 'Подкатегория']
+        for col in str_cols:
+            if col in df.columns:
+                df[col] = df[col].astype('string')
+        
+        df['Бренд'] = df['Бренд'].str.lower()
+        
+        # Оптимизация артикулов
+        if 'Артикул' in df.columns:
+            df['Артикул'] = df['Артикул'].apply(
+                lambda x: x[:len(x)//2] if len(x) == 20 and x[:10] == x[10:] else x
+            )
+
+        logger.info(f"Успешно загружено {len(df)} записей")
+        return df
+        
     except requests.exceptions.RequestException as e:
         logger.error(f"Ошибка запроса: {str(e)}", exc_info=True)
         st.error(f"Ошибка при загрузке данных: {str(e)}")
+        return pd.DataFrame()
+    except json.JSONDecodeError as e:
+        logger.error(f"Ошибка декодирования JSON: {str(e)}", exc_info=True)
+        st.error("Файл поврежден или имеет неверный формат")
         return pd.DataFrame()
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {str(e)}", exc_info=True)
         st.error(f"Произошла ошибка при обработке данных: {str(e)}")
         return pd.DataFrame()
     finally:
-        progress_bar.empty()
-        status_text.empty()
+        if 'progress_bar' in locals(): progress_bar.empty()
+        if 'status_text' in locals(): status_text.empty()
 
 # Оптимизированная загрузка Excel
 @st.cache_data(ttl=3600, max_entries=2)
@@ -237,24 +237,21 @@ def apply_filters(df: pd.DataFrame, date_range: Tuple[datetime.date, datetime.da
 def main():
     global global_df, global_excel_df
     
-    st.title("🔍 Wildberries Analytics Pro (Optimized for Large Files)")
+    st.title("🔍 Wildberries Analytics Pro (Large Files Support)")
     
     # URL данных
     json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
     excel_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
     
-    # Загрузка данных с обработкой больших файлов
+    # Загрузка данных
     if 'data_loaded' not in st.session_state:
-        with st.spinner("Загрузка и обработка данных (это может занять несколько минут для больших файлов)..."):
+        with st.spinner("Загрузка и обработка данных (это может занять время для больших файлов)..."):
             try:
-                # Загрузка JSON с прогресс-баром
                 global_df = load_large_json(json_url)
                 
-                # Загрузка Excel
                 if global_df is not None and not global_df.empty:
                     global_excel_df = load_excel_data(excel_url)
                     
-                    # Объединение данных
                     if global_excel_df is not None and not global_excel_df.empty:
                         global_df = pd.merge(
                             global_df,
@@ -345,7 +342,7 @@ def main():
     
     with st.spinner("Расчет показателей..."):
         try:
-            revenue = filtered_df['Цена'].sum()
+            revenue = filtered_df['Выручка'].sum()
             order_count = filtered_df['srid'].nunique()
             avg_check = revenue / order_count if order_count > 0 else 0
             avg_spp = filtered_df['СПП'].mean()
@@ -375,14 +372,14 @@ def main():
                 dynamic_df = filtered_df.groupby(
                     pd.Grouper(key='Дата', freq=freq_map[freq])
                 ).agg({
-                    'Цена': 'sum',
+                    'Выручка': 'sum',
                     'srid': 'nunique'
                 }).reset_index()
                 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=dynamic_df['Дата'],
-                    y=dynamic_df['Цена'],
+                    y=dynamic_df['Выручка'],
                     name="Выручка",
                     line=dict(color='#1f77b4', width=2)
                 ))
@@ -413,12 +410,12 @@ def main():
         if st.checkbox("Показать детализацию", True, key="show_details"):
             with st.spinner("Анализ выручки..."):
                 try:
-                    total_revenue = filtered_df['Цена'].sum()
+                    total_revenue = filtered_df['Выручка'].sum()
                     
                     # Функция для отображения данных
                     def display_revenue_analysis(df, group_col, title):
                         analysis_df = df.groupby(group_col).agg({
-                            'Цена': ['sum', 'count'],
+                            'Выручка': ['sum', 'count'],
                             'СПП': 'mean'
                         }).reset_index()
                         
@@ -464,14 +461,14 @@ def main():
                     if date_range[0] == date_range[1]:
                         st.subheader("Почасовая аналитика")
                         hourly_df = filtered_df.groupby(filtered_df['Дата'].dt.hour).agg({
-                            'Цена': 'sum',
+                            'Выручка': 'sum',
                             'srid': 'nunique'
                         }).reset_index().rename(columns={'Дата': 'Час'})
                         
                         fig = px.bar(
                             hourly_df,
                             x='Час',
-                            y='Цена',
+                            y='Выручка',
                             hover_data=['srid'],
                             labels={'srid': 'Количество заказов'},
                             title='Выручка по часам'
