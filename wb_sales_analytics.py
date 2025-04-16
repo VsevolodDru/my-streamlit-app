@@ -179,7 +179,7 @@ class DataLoader:
             response = requests.get(url, timeout=(30, 300))
             response.raise_for_status()
             
-            with io.BBytesIO(response.content) as excel_file:
+            with io.BytesIO(response.content) as excel_file:
                 try:
                     df = pd.read_excel(
                         excel_file,
