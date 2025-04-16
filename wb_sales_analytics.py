@@ -74,7 +74,7 @@ def load_large_json(url: str) -> pd.DataFrame:
         datetime_cols = ['date', 'lastChangeDate']
         for col in datetime_cols:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col]).dt.tz_localize('Europe/Moscow')
+                df[col] = pd.to_datetime(df[col].dt.tz_localize('Europe/Moscow'))
         
         df['is_return'] = df.get('srid', '').str.startswith('R')
         df['revenue'] = df['totalPrice']
@@ -150,26 +150,27 @@ def load_excel_data(url: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def to_excel(df: pd.DataFrame) -> bytes:
+    """Конвертирует DataFrame в Excel с оптимизацией памяти."""
     try:
         df_copy = df.copy()
         
+        # Очистка datetime объектов
         datetime_cols = ['Дата', 'lastChangeDate']
         for col in datetime_cols:
             if col in df_copy.columns:
                 df_copy[col] = df_copy[col].dt.tz_localize(None)
         
+        # Используем буфер
         output = io.BytesIO()
+        
         with pd.ExcelWriter(
             output,
-            engine='openpyxl',
-            mode='w',
-            engine_kwargs={'options': {'strings_to_urls': False}}
+            engine='openpyxl'
         ) as writer:
             df_copy.to_excel(
                 writer,
                 index=False,
-                sheet_name='SalesData',
-                freeze_panes=(1, 0)
+                sheet_name='SalesData'
             )
         
         return output.getvalue()
@@ -455,12 +456,4 @@ def main():
         cols[1].download_button(
             label="📥 CSV (сжатый)",
             data=filtered_df.to_csv(index=False, encoding='utf-8').encode('utf-8'),
-            file_name="wb_analytics.csv",
-            mime="text/csv"
-        )
-
-if __name__ == "__main__":
-    try:
-        main()
-    finally:
-        gc.collect()
+            file_name="wb
