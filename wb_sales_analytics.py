@@ -47,10 +47,10 @@ class DataLoader:
                 logger.error(f"Attempt {attempt + 1} failed: {str(e)}\n{traceback.format_exc()}")
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY)
-        return None
+        return pd.DataFrame()  # Возвращаем пустой DataFrame вместо None
 
     @staticmethod
-    def load_large_json(url: str) -> Optional[pd.DataFrame]:
+    def load_large_json(url: str) -> pd.DataFrame:
         try:
             logger.info(f"Starting JSON load from {url}")
             
@@ -59,10 +59,10 @@ class DataLoader:
                 with requests.head(url, timeout=10) as r:
                     if r.status_code != 200:
                         st.error(f"URL недоступен. Код статуса: {r.status_code}")
-                        return None
+                        return pd.DataFrame()
             except requests.RequestException as e:
                 st.error(f"Ошибка подключения к {url}: {str(e)}")
-                return None
+                return pd.DataFrame()
 
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -83,25 +83,22 @@ class DataLoader:
             
             status_text.text("Обработка JSON...")
             
-            # Десериализация JSON с обработкой ошибок
             try:
                 data = json.loads(b''.join(chunks).decode('utf-8'))
             except json.JSONDecodeError as e:
                 st.error(f"Ошибка формата JSON: {str(e)}")
-                return None
+                return pd.DataFrame()
             
             if not data:
                 st.warning("Получен пустой JSON")
                 return pd.DataFrame()
             
-            # Создание DataFrame
             try:
                 df = pd.DataFrame(data)
                 if df.empty:
                     st.warning("Данные отсутствуют в JSON")
                     return df
                 
-                # Обработка дат
                 datetime_cols = ['date', 'lastChangeDate']
                 for col in datetime_cols:
                     if col in df.columns:
@@ -113,7 +110,6 @@ class DataLoader:
                             logger.warning(f"Ошибка обработки даты в колонке {col}: {str(e)}")
                             df[col] = pd.to_datetime(df[col], errors='coerce')
                 
-                # Добавление расчетных полей
                 df['is_return'] = df.get('srid', '').astype(str).str.startswith('R')
                 df['revenue'] = df.get('totalPrice', 0)
                 
@@ -126,7 +122,6 @@ class DataLoader:
                 
                 df['isCancel'] = df.get('isCancel', False)
 
-                # Переименование колонок
                 column_mapping = {
                     'date': 'Дата',
                     'warehouseName': 'Склад',
@@ -144,7 +139,6 @@ class DataLoader:
                 
                 df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
-                # Обработка строковых колонок
                 str_cols = ['Бренд', 'Артикул', 'Категория', 'Подкатегория', 'Склад', 'Тип склада']
                 for col in str_cols:
                     if col in df.columns:
@@ -163,30 +157,29 @@ class DataLoader:
                 
             except Exception as e:
                 st.error(f"Ошибка обработки данных: {str(e)}")
-                return None
+                return pd.DataFrame()
                 
         except Exception as e:
             logger.error(f"Критическая ошибка загрузки: {str(e)}\n{traceback.format_exc()}")
             st.error(f"Ошибка при загрузке данных: {str(e)}")
-            return None
+            return pd.DataFrame()
         finally:
             if 'progress_bar' in locals(): progress_bar.empty()
             if 'status_text' in locals(): status_text.empty()
 
     @staticmethod
-    def load_excel_data(url: str) -> Optional[pd.DataFrame]:
+    def load_excel_data(url: str) -> pd.DataFrame:
         try:
             logger.info(f"Starting Excel load from {url}")
             
-            # Проверка доступности URL
             try:
                 with requests.head(url, timeout=10) as r:
                     if r.status_code != 200:
                         st.error(f"Excel URL недоступен. Код статуса: {r.status_code}")
-                        return None
+                        return pd.DataFrame()
             except requests.RequestException as e:
                 st.error(f"Ошибка подключения к Excel URL: {str(e)}")
-                return None
+                return pd.DataFrame()
 
             response = requests.get(url, timeout=(30, 300))
             response.raise_for_status()
@@ -200,7 +193,7 @@ class DataLoader:
                     )
                 except Exception as e:
                     st.error(f"Ошибка чтения Excel: {str(e)}")
-                    return None
+                    return pd.DataFrame()
             
             if df.empty:
                 st.warning("Excel файл пуст")
@@ -209,14 +202,13 @@ class DataLoader:
             required_cols = ['Артикул продавца', 'Наименование']
             if not all(col in df.columns for col in required_cols):
                 st.error("В Excel отсутствуют необходимые колонки")
-                return None
+                return pd.DataFrame()
             
             df = df.rename(columns={
                 'Артикул продавца': 'Артикул',
                 'Наименование': 'Наименование товара'
             })
             
-            # Очистка данных
             df['Артикул'] = df['Артикул'].astype(str).str.strip()
             df['Наименование товара'] = df['Наименование товара'].astype(str).str.strip()
             
@@ -226,16 +218,16 @@ class DataLoader:
         except Exception as e:
             logger.error(f"Ошибка загрузки Excel: {str(e)}\n{traceback.format_exc()}")
             st.error(f"Ошибка при обработке Excel файла: {str(e)}")
-            return None
+            return pd.DataFrame()
 
 def main():
     # Инициализация состояния
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
         st.session_state.load_error = None
-        st.session_state.df = None
-        st.session_state.excel_df = None
-        st.session_state.filtered_df = None
+        st.session_state.df = pd.DataFrame()  # Инициализируем пустым DataFrame
+        st.session_state.excel_df = pd.DataFrame()
+        st.session_state.filtered_df = pd.DataFrame()
 
     st.title("🔍 Wildberries Analytics Pro")
     
@@ -244,45 +236,17 @@ def main():
         "json": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json",
         "excel": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
     }
-    
-    # Альтернативные URL (если основные не работают)
-    BACKUP_URLS = {
-        "json": [
-            "https://backup1.example.com/wb_data.json",
-            "https://backup2.example.com/wb_data.json"
-        ],
-        "excel": [
-            "https://backup1.example.com/wb_products.xlsx",
-            "https://backup2.example.com/wb_products.xlsx"
-        ]
-    }
 
     # Загрузка данных (если еще не загружены)
     if not st.session_state.data_loaded and st.session_state.load_error is None:
         with st.spinner("Загрузка данных. Пожалуйста, подождите..."):
             try:
-                # Пробуем основные URL
                 json_data = DataLoader.load_with_retry(DATA_SOURCES["json"], DataLoader.load_large_json)
-                
-                # Если не получилось, пробуем резервные URL
-                if json_data is None:
-                    for backup_url in BACKUP_URLS["json"]:
-                        json_data = DataLoader.load_with_retry(backup_url, DataLoader.load_large_json)
-                        if json_data is not None:
-                            break
                 
                 if json_data is not None and not json_data.empty:
                     excel_data = DataLoader.load_with_retry(DATA_SOURCES["excel"], DataLoader.load_excel_data)
                     
-                    # Если не получилось, пробуем резервные URL
-                    if excel_data is None:
-                        for backup_url in BACKUP_URLS["excel"]:
-                            excel_data = DataLoader.load_with_retry(backup_url, DataLoader.load_excel_data)
-                            if excel_data is not None:
-                                break
-                    
                     if excel_data is not None and not excel_data.empty:
-                        # Объединение данных
                         try:
                             merged_df = pd.merge(
                                 json_data,
@@ -335,7 +299,7 @@ def main():
 
     # Безопасное получение дат
     try:
-        if df is not None and not df.empty and 'Дата' in df.columns:
+        if not df.empty and 'Дата' in df.columns:
             min_date = df['Дата'].min().date()
             max_date = df['Дата'].max().date()
         else:
@@ -379,7 +343,7 @@ def main():
         st.header("🗂 Фильтры")
         
         warehouse_col = None
-        if df is not None:
+        if not df.empty:
             warehouse_col = next((col for col in ['Тип склада', 'Склад'] if col in df.columns), None)
         
         if warehouse_col:
@@ -398,15 +362,18 @@ def main():
     if st.button("Применить фильтры") or 'filtered_df' not in st.session_state:
         with st.spinner("Применение фильтров..."):
             try:
-                if df is None or df.empty:
+                if df.empty:
                     st.session_state.filtered_df = pd.DataFrame()
                     st.warning("Нет данных для фильтрации")
                 else:
-                    # Базовый фильтр по дате
-                    filtered = df[
-                        (df['Дата'].dt.date >= start_date) & 
-                        (df['Дата'].dt.date <= end_date)
-                    ].copy()
+                    filtered = df.copy()
+                    
+                    # Фильтр по дате
+                    if 'Дата' in filtered.columns:
+                        filtered = filtered[
+                            (filtered['Дата'].dt.date >= start_date) & 
+                            (filtered['Дата'].dt.date <= end_date)
+                        ]
                     
                     # Дополнительные фильтры
                     if not include_cancelled and 'isCancel' in filtered.columns:
@@ -415,15 +382,15 @@ def main():
                     if 'is_return' in filtered.columns:
                         filtered = filtered[~filtered['is_return']]
                     
-                    if selected_warehouses and warehouse_col:
+                    if selected_warehouses and warehouse_col and warehouse_col in filtered.columns:
                         filtered = filtered[filtered[warehouse_col].isin(selected_warehouses)]
                     
-                    st.session_state.filtered_df = filtered
+                    st.session_state.filtered_df = filtered if not filtered.empty else pd.DataFrame()
                     
-                    if filtered.empty:
+                    if st.session_state.filtered_df.empty:
                         st.warning("Нет данных по выбранным фильтрам")
                     else:
-                        st.success(f"Загружено {len(filtered)} записей")
+                        st.success(f"Загружено {len(st.session_state.filtered_df)} записей")
                         
             except Exception as e:
                 logger.error(f"Ошибка фильтрации: {str(e)}\n{traceback.format_exc()}")
@@ -433,7 +400,7 @@ def main():
     # Получаем отфильтрованные данные
     filtered_df = st.session_state.get('filtered_df', pd.DataFrame())
     
-    if filtered_df.empty:
+    if filtered_df is None or filtered_df.empty:
         st.warning("Нет данных для отображения. Измените параметры фильтров.")
         st.stop()
 
