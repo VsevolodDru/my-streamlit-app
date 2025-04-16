@@ -179,7 +179,7 @@ class DataLoader:
             response = requests.get(url, timeout=(30, 300))
             response.raise_for_status()
             
-            with io.BytesIO(response.content) as excel_file:
+            with io.BBytesIO(response.content) as excel_file:
                 try:
                     df = pd.read_excel(
                         excel_file,
@@ -214,6 +214,13 @@ class DataLoader:
             logger.error(f"Ошибка загрузки Excel: {str(e)}\n{traceback.format_exc()}")
             st.error(f"Ошибка при обработке Excel файла: {str(e)}")
             return pd.DataFrame()
+
+def to_excel(df: pd.DataFrame) -> bytes:
+    """Конвертирует DataFrame в Excel файл в памяти"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
 
 def main():
     # Инициализация состояния
@@ -430,8 +437,8 @@ def main():
         st.error("Ошибка при расчете показателей")
 
     # Дополнительные вкладки с аналитикой
-    tab1, tab2 = st.tabs(["📈 Динамика продаж", "💰 Детализация выручки"])
-    
+    tab1, tab2, tab3 = st.tabs(["📈 Динамика продаж", "💰 Детализация выручки", "🔍 Детальный анализ"])
+
     with tab1:
         st.subheader("Динамика продаж")
         
@@ -506,6 +513,63 @@ def main():
             logger.error(f"Ошибка детализации: {str(e)}")
             st.error("Ошибка при анализе выручки")
 
+    with tab3:
+        st.subheader("Детальный анализ")
+        
+        try:
+            if filtered_df.empty:
+                st.warning("Нет данных для анализа")
+            else:
+                # Выбор типа анализа
+                analysis_type = st.selectbox(
+                    "Тип анализа",
+                    options=['Категория', 'Бренд', 'Подкатегория', 'Склад'],
+                    index=0
+                )
+                
+                if analysis_type in filtered_df.columns:
+                    # Группировка данных
+                    analysis_df = filtered_df.groupby(analysis_type).agg({
+                        'Выручка': 'sum',
+                        'srid': 'nunique',
+                        'СПП': 'mean'
+                    }).reset_index()
+                    
+                    analysis_df.columns = [analysis_type, 'Выручка', 'Количество заказов', 'Средний СПП']
+                    analysis_df['Средний чек'] = analysis_df['Выручка'] / analysis_df['Количество заказов']
+                    analysis_df['Доля выручки'] = (analysis_df['Выручка'] / analysis_df['Выручка'].sum()) * 100
+                    
+                    # Сортировка
+                    analysis_df = analysis_df.sort_values('Выручка', ascending=False)
+                    
+                    # Отображение таблицы
+                    st.dataframe(
+                        analysis_df.style.format({
+                            'Выручка': '{:,.0f} ₽',
+                            'Средний чек': '{:,.0f} ₽',
+                            'Доля выручки': '{:.1f}%',
+                            'Средний СПП': '{:.1f}%'
+                        }),
+                        height=600,
+                        use_container_width=True
+                    )
+                    
+                    # Визуализация
+                    fig = px.bar(
+                        analysis_df.head(20),
+                        x=analysis_type,
+                        y='Выручка',
+                        hover_data=['Количество заказов', 'Средний чек', 'Доля выручки'],
+                        title=f"Топ 20 {analysis_type.lower()} по выручке"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning(f"В данных отсутствует колонка {analysis_type}")
+                
+        except Exception as e:
+            logger.error(f"Ошибка детального анализа: {str(e)}")
+            st.error("Ошибка при выполнении анализа")
+
     # Экспорт данных
     with st.expander("📁 Экспорт данных"):
         st.subheader("Отфильтрованные данные")
@@ -521,7 +585,7 @@ def main():
             with col1:
                 st.download_button(
                     label="Скачать Excel",
-                    data=filtered_df.to_excel(index=False),
+                    data=to_excel(filtered_df),
                     file_name="wb_data.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
