@@ -32,36 +32,30 @@ st.set_page_config(
 )
 
 # Константы
-MAX_JSON_SIZE_MB = 500  # Лимит для предупреждения
-JSON_LOAD_TIMEOUT = 600  # 10 минут
-CHUNK_SIZE = 1024 * 1024  # 1MB для потоковой обработки
+MAX_JSON_SIZE_MB = 500
+JSON_LOAD_TIMEOUT = 600
+CHUNK_SIZE = 1024 * 1024
 
 # Глобальные переменные
 global_df = None
 global_excel_df = None
 
-# Оптимизированная загрузка больших JSON файлов
 @st.cache_data(ttl=3600, max_entries=3, show_spinner="Загрузка данных...")
 def load_large_json(url: str) -> pd.DataFrame:
-    """Загружает и обрабатывает большие JSON файлы с помощью стандартного модуля json"""
     try:
         logger.info(f"Начало загрузки JSON файла из {url}")
         
-        # Проверка размера файла
         with requests.head(url, timeout=10) as r:
             size_mb = int(r.headers.get('content-length', 0)) / (1024 * 1024)
             if size_mb > MAX_JSON_SIZE_MB:
                 st.warning(f"⚠️ Файл очень большой ({size_mb:.1f} МБ). Загрузка может занять несколько минут...")
 
-        # Прогресс-бар
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Загрузка файла по частям
         response = requests.get(url, stream=True, timeout=(30, JSON_LOAD_TIMEOUT))
         response.raise_for_status()
         
-        # Собираем данные в буфер
         chunks = []
         total_size = int(response.headers.get('content-length', 0))
         downloaded = 0
@@ -73,27 +67,21 @@ def load_large_json(url: str) -> pd.DataFrame:
             progress_bar.progress(progress)
             status_text.text(f"Загружено: {downloaded/(1024*1024):.1f} МБ / {total_size/(1024*1024):.1f} МБ")
         
-        # Десериализация JSON
         status_text.text("Обработка JSON...")
         data = json.loads(b''.join(chunks).decode('utf-8'))
-        
-        # Конвертация в DataFrame с оптимизацией памяти
         df = pd.DataFrame(data)
         
-        # Преобразование данных
         datetime_cols = ['date', 'lastChangeDate']
         for col in datetime_cols:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col]).dt.tz_localize('Europe/Moscow')
         
-        # Оптимизация типов данных
         df['is_return'] = df.get('srid', '').str.startswith('R')
         df['revenue'] = df['totalPrice']
         df['week'] = df['date'].dt.isocalendar().week
         df['month'] = df['date'].dt.month
         df['isCancel'] = df.get('isCancel', False)
 
-        # Русские названия столбцов
         column_mapping = {
             'date': 'Дата',
             'warehouseType': 'Склад',
@@ -108,7 +96,6 @@ def load_large_json(url: str) -> pd.DataFrame:
         }
         df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
-        # Оптимизация строковых данных
         str_cols = ['Бренд', 'Артикул', 'Категория', 'Подкатегория']
         for col in str_cols:
             if col in df.columns:
@@ -116,7 +103,6 @@ def load_large_json(url: str) -> pd.DataFrame:
         
         df['Бренд'] = df['Бренд'].str.lower()
         
-        # Оптимизация артикулов
         if 'Артикул' in df.columns:
             df['Артикул'] = df['Артикул'].apply(
                 lambda x: x[:len(x)//2] if len(x) == 20 and x[:10] == x[10:] else x
@@ -125,26 +111,16 @@ def load_large_json(url: str) -> pd.DataFrame:
         logger.info(f"Успешно загружено {len(df)} записей")
         return df
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Ошибка запроса: {str(e)}", exc_info=True)
-        st.error(f"Ошибка при загрузке данных: {str(e)}")
-        return pd.DataFrame()
-    except json.JSONDecodeError as e:
-        logger.error(f"Ошибка декодирования JSON: {str(e)}", exc_info=True)
-        st.error("Файл поврежден или имеет неверный формат")
-        return pd.DataFrame()
     except Exception as e:
-        logger.error(f"Неожиданная ошибка: {str(e)}", exc_info=True)
-        st.error(f"Произошла ошибка при обработке данных: {str(e)}")
+        logger.error(f"Ошибка загрузки: {str(e)}", exc_info=True)
+        st.error(f"Ошибка при загрузке данных: {str(e)}")
         return pd.DataFrame()
     finally:
         if 'progress_bar' in locals(): progress_bar.empty()
         if 'status_text' in locals(): status_text.empty()
 
-# Оптимизированная загрузка Excel
 @st.cache_data(ttl=3600, max_entries=2)
 def load_excel_data(url: str) -> pd.DataFrame:
-    """Загружает и обрабатывает данные из Excel с оптимизацией памяти."""
     try:
         logger.info("Начало загрузки Excel данных")
         response = requests.get(url, timeout=(30, 300))
@@ -173,19 +149,15 @@ def load_excel_data(url: str) -> pd.DataFrame:
         st.error(f"Ошибка при обработке Excel файла: {str(e)}")
         return pd.DataFrame()
 
-# Оптимизированный экспорт в Excel
 def to_excel(df: pd.DataFrame) -> bytes:
-    """Конвертирует DataFrame в Excel с оптимизацией памяти."""
     try:
         df_copy = df.copy()
         
-        # Очистка datetime объектов
         datetime_cols = ['Дата', 'lastChangeDate']
         for col in datetime_cols:
             if col in df_copy.columns:
                 df_copy[col] = df_copy[col].dt.tz_localize(None)
         
-        # Используем буфер
         output = io.BytesIO()
         with pd.ExcelWriter(
             output,
@@ -206,10 +178,8 @@ def to_excel(df: pd.DataFrame) -> bytes:
         st.error(f"Ошибка при создании Excel файла: {str(e)}")
         raise
 
-# Функция для фильтрации данных
 def apply_filters(df: pd.DataFrame, date_range: Tuple[datetime.date, datetime.date], 
                  include_cancelled: bool, warehouse_type: list) -> pd.DataFrame:
-    """Применяет фильтры к данным с оптимизацией."""
     try:
         filtered = df[
             (df['Дата'].dt.date >= date_range[0]) &
@@ -223,7 +193,6 @@ def apply_filters(df: pd.DataFrame, date_range: Tuple[datetime.date, datetime.da
         if warehouse_type:
             filtered = filtered[filtered['Склад'].isin(warehouse_type)]
         
-        # Оптимизация памяти
         for col in filtered.select_dtypes(include=['object']):
             filtered[col] = filtered[col].astype('string')
             
@@ -233,17 +202,14 @@ def apply_filters(df: pd.DataFrame, date_range: Tuple[datetime.date, datetime.da
         st.error(f"Ошибка при фильтрации данных: {str(e)}")
         raise
 
-# Основная функция
 def main():
     global global_df, global_excel_df
     
     st.title("🔍 Wildberries Analytics Pro (Large Files Support)")
     
-    # URL данных
     json_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json"
     excel_url = "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
     
-    # Загрузка данных
     if 'data_loaded' not in st.session_state:
         with st.spinner("Загрузка и обработка данных (это может занять время для больших файлов)..."):
             try:
@@ -253,24 +219,28 @@ def main():
                     global_excel_df = load_excel_data(excel_url)
                     
                     if global_excel_df is not None and not global_excel_df.empty:
+                        # Проверка и обработка дубликатов
+                        duplicates = global_excel_df.duplicated(subset=['Артикул']).sum()
+                        if duplicates > 0:
+                            st.warning(f"Найдено {duplicates} дубликатов артикулов в Excel файле. Будет использовано первое значение.")
+                            global_excel_df = global_excel_df.drop_duplicates(subset=['Артикул'], keep='first')
+                        
+                        # Объединение данных
                         global_df = pd.merge(
                             global_df,
                             global_excel_df,
                             on='Артикул',
-                            how='left',
-                            validate='many_to_one'
+                            how='left'
                         )
                         st.session_state.data_loaded = True
             except Exception as e:
                 st.error(f"Ошибка при загрузке данных: {str(e)}")
                 return
     
-    # Проверка загрузки данных
     if global_df is None or global_df.empty:
         st.warning("Не удалось загрузить данные. Пожалуйста, попробуйте позже.")
         return
     
-    # Кнопка сброса кэша
     if st.button("🔄 Сбросить кэш и перезагрузить данные"):
         st.cache_data.clear()
         st.session_state.clear()
@@ -278,11 +248,9 @@ def main():
         global_excel_df = None
         st.experimental_rerun()
     
-    # Определение диапазона дат
     min_date = global_df['Дата'].min().date()
     max_date = global_df['Дата'].max().date()
     
-    # Сайдбар с фильтрами
     with st.sidebar:
         st.header("⏱ Период анализа")
         try:
@@ -309,7 +277,6 @@ def main():
             default=global_df['Склад'].unique()[0] if len(global_df['Склад'].unique()) > 0 else []
         )
     
-    # Применение фильтров
     if 'filtered_df' not in st.session_state or st.button("Применить фильтры"):
         with st.spinner("Применение фильтров..."):
             try:
@@ -325,19 +292,16 @@ def main():
     
     filtered_df = st.session_state.get('filtered_df', pd.DataFrame())
     
-    # Проверка данных
     if filtered_df.empty:
         st.warning("Нет данных по выбранным фильтрам")
         st.stop()
     
-    # Диагностика данных
     st.subheader("🔍 Диагностика данных")
     cols = st.columns(3)
     cols[0].metric("Всего записей", len(filtered_df))
     cols[1].metric("Уникальных заказов", filtered_df['srid'].nunique())
     cols[2].metric("Дубликатов srid", filtered_df.duplicated(subset=['srid']).sum())
     
-    # Ключевые показатели
     st.header("📊 Ключевые показатели")
     
     with st.spinner("Расчет показателей..."):
@@ -358,7 +322,6 @@ def main():
             logger.error(f"Ошибка расчета метрик: {str(e)}", exc_info=True)
             st.error("Ошибка при расчете показателей")
     
-    # Вкладки анализа
     tab1, tab2 = st.tabs(["📈 Динамика продаж", "💰 Детализация выручки"])
     
     with tab1:
@@ -412,7 +375,6 @@ def main():
                 try:
                     total_revenue = filtered_df['Выручка'].sum()
                     
-                    # Функция для отображения данных
                     def display_revenue_analysis(df, group_col, title):
                         analysis_df = df.groupby(group_col).agg({
                             'Выручка': ['sum', 'count'],
@@ -445,19 +407,15 @@ def main():
                         )
                         return analysis_df
                     
-                    # Анализ по категориям
                     cat_df = display_revenue_analysis(filtered_df, 'Категория', "Выручка по категориям")
                     selected_cat = st.selectbox("Выберите категорию", cat_df['Категория'].unique())
                     
-                    # Детализация по выбранной категории
                     cat_details = filtered_df[filtered_df['Категория'] == selected_cat]
                     subcat_df = display_revenue_analysis(cat_details, 'Подкатегория', 
                                                        f"Выручка по подкатегориям ({selected_cat})")
                     
-                    # Анализ по брендам
                     brand_df = display_revenue_analysis(filtered_df, 'Бренд', "Выручка по брендам")
                     
-                    # Почасовая аналитика для одного дня
                     if date_range[0] == date_range[1]:
                         st.subheader("Почасовая аналитика")
                         hourly_df = filtered_df.groupby(filtered_df['Дата'].dt.hour).agg({
@@ -479,7 +437,6 @@ def main():
                     logger.error(f"Ошибка детализации: {str(e)}", exc_info=True)
                     st.error("Ошибка при анализе выручки")
     
-    # Экспорт данных
     with st.expander("📁 Экспорт данных", expanded=False):
         st.subheader("Отфильтрованные данные")
         st.dataframe(
@@ -506,5 +463,4 @@ if __name__ == "__main__":
     try:
         main()
     finally:
-        # Гарантированная очистка памяти
         gc.collect()
