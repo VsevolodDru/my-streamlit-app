@@ -230,7 +230,9 @@ def main():
             'load_error': None,
             'df': pd.DataFrame(),
             'excel_df': pd.DataFrame(),
-            'filtered_df': pd.DataFrame()
+            'filtered_df': pd.DataFrame(),
+            'previous_fbs': True,
+            'previous_fbo': True
         })
 
     st.title("🔍 Wildberries Analytics Pro")
@@ -248,12 +250,22 @@ def main():
         
         # Фильтр по схемам продаж
         st.header("📦 Схемы продаж")
-        use_fbs = st.checkbox("FBS", value=True, key="use_fbs")
-        use_fbo = st.checkbox("FBO", value=True, key="use_fbo")
+        use_fbs = st.checkbox("FBS", value=st.session_state.get('previous_fbs', True), key="use_fbs")
+        use_fbo = st.checkbox("FBO", value=st.session_state.get('previous_fbo', True), key="use_fbo")
 
         if not (use_fbs or use_fbo):
             st.warning("Выберите хотя бы одну схему продаж для загрузки данных.")
             st.stop()
+
+        # Проверяем, изменились ли чекбоксы, чтобы перезагрузить данные
+        if (use_fbs != st.session_state.get('previous_fbs', True) or 
+            use_fbo != st.session_state.get('previous_fbo', True)):
+            st.session_state.update({
+                'data_loaded': False,
+                'load_error': None,
+                'previous_fbs': use_fbs,
+                'previous_fbo': use_fbo
+            })
 
     # Загрузка данных
     if not st.session_state.data_loaded and st.session_state.load_error is None:
@@ -266,6 +278,7 @@ def main():
                     if not fbs_data.empty:
                         fbs_data['Схема продаж'] = 'FBS'
                         combined_data = pd.concat([combined_data, fbs_data], ignore_index=True)
+                        logger.info(f"Загружены данные FBS: {len(fbs_data)} записей")
                     else:
                         st.warning("Не удалось загрузить данные по FBS")
 
@@ -274,6 +287,7 @@ def main():
                     if not fbo_data.empty:
                         fbo_data['Схема продаж'] = 'FBO'
                         combined_data = pd.concat([combined_data, fbo_data], ignore_index=True)
+                        logger.info(f"Загружены данные FBO: {len(fbo_data)} записей")
                     else:
                         st.warning("Не удалось загрузить данные по FBO")
 
