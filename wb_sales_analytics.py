@@ -37,6 +37,20 @@ MAX_JSON_SIZE_MB = 500
 JSON_LOAD_TIMEOUT = 600
 CHUNK_SIZE = 1024 * 1024
 
+# Хранилище для ошибок и уведомлений
+if 'error_log' not in st.session_state:
+    st.session_state['error_log'] = []
+
+def log_error(message: str):
+    """Добавляет сообщение об ошибке в лог"""
+    logger.error(message)
+    st.session_state['error_log'].append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Ошибка: {message}")
+
+def log_warning(message: str):
+    """Добавляет предупреждение в лог"""
+    logger.warning(message)
+    st.session_state['error_log'].append(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Предупреждение: {message}")
+
 class DataLoader:
     @staticmethod
     def load_with_retry(url: str, loader_func, **kwargs):
@@ -44,7 +58,8 @@ class DataLoader:
             try:
                 return loader_func(url, **kwargs)
             except Exception as e:
-                logger.error(f"Attempt {attempt + 1} failed: {str(e)}\n{traceback.format_exc()}")
+                error_msg = f"Попытка {attempt + 1} не удалась: {str(e)}\n{traceback.format_exc()}"
+                log_error(error_msg)
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_DELAY)
         return pd.DataFrame()
@@ -56,7 +71,7 @@ class DataLoader:
             
             with requests.head(url, timeout=10) as r:
                 if r.status_code != 200:
-                    st.error(f"URL недоступен. Код статуса: {r.status_code}")
+                    log_error(f"URL недоступен. Код статуса: {r.status_code}")
                     return pd.DataFrame()
 
             progress_bar = st.progress(0)
@@ -81,17 +96,17 @@ class DataLoader:
             try:
                 data = json.loads(b''.join(chunks).decode('utf-8'))
             except json.JSONDecodeError as e:
-                st.error(f"Ошибка формата JSON: {str(e)}")
+                log_error(f"Ошибка формата JSON: {str(e)}")
                 return pd.DataFrame()
             
             if not data:
-                st.warning("Получен пустой JSON")
+                log_warning("Получен пустой JSON")
                 return pd.DataFrame()
             
             try:
                 df = pd.DataFrame(data)
                 if df.empty:
-                    st.warning("Данные отсутствуют в JSON")
+                    log_warning("Данные отсутствуют в JSON")
                     return df
                 
                 datetime_cols = ['date', 'lastChangeDate']
@@ -102,7 +117,7 @@ class DataLoader:
                             if df[col].dt.tz is None:
                                 df[col] = df[col].dt.tz_localize('Europe/Moscow')
                         except Exception as e:
-                            logger.warning(f"Ошибка обработки даты в колонке {col}: {str(e)}")
+                            log_warning(f"Ошибка обработки даты в колонке {col}: {str(e)}")
                             df[col] = pd.to_datetime(df[col], errors='coerce')
                 
                 df['is_return'] = df.get('srid', '').astype(str).str.startswith('R')
@@ -151,12 +166,11 @@ class DataLoader:
                 return df
                 
             except Exception as e:
-                st.error(f"Ошибка обработки данных: {str(e)}")
+                log_error(f"Ошибка обработки данных: {str(e)}")
                 return pd.DataFrame()
                 
         except Exception as e:
-            logger.error(f"Критическая ошибка загрузки: {str(e)}\n{traceback.format_exc()}")
-            st.error(f"Ошибка при загрузке данных: {str(e)}")
+            log_error(f"Критическая ошибка загрузки: {str(e)}\n{traceback.format_exc()}")
             return pd.DataFrame()
         finally:
             if 'progress_bar' in locals(): progress_bar.empty()
@@ -170,10 +184,10 @@ class DataLoader:
             try:
                 with requests.head(url, timeout=10) as r:
                     if r.status_code != 200:
-                        st.error(f"Excel URL недоступен. Код статуса: {r.status_code}")
+                        log_error(f"Excel URL недоступен. Код статуса: {r.status_code}")
                         return pd.DataFrame()
             except requests.RequestException as e:
-                st.error(f"Ошибка подключения к Excel URL: {str(e)}")
+                log_error(f"Ошибка подключения к Excel URL: {str(e)}")
                 return pd.DataFrame()
 
             response = requests.get(url, timeout=(30, 300))
@@ -187,16 +201,16 @@ class DataLoader:
                         dtype={'Артикул продавца': 'string', 'Наименование': 'string'}
                     )
                 except Exception as e:
-                    st.error(f"Ошибка чтения Excel: {str(e)}")
+                    log_error(f"Ошибка чтения Excel: {str(e)}")
                     return pd.DataFrame()
             
             if df.empty:
-                st.warning("Excel файл пуст")
+                log_warning("Excel файл пуст")
                 return df
             
             required_cols = ['Артикул продавца', 'Наименование']
             if not all(col in df.columns for col in required_cols):
-                st.error("В Excel отсутствуют необходимые колонки")
+                log_error("В Excel отсутствуют необходимые колонки")
                 return pd.DataFrame()
             
             df = df.rename(columns={
@@ -211,8 +225,7 @@ class DataLoader:
             return df[['Артикул', 'Наименование товара']].drop_duplicates(subset=['Артикул'])
         
         except Exception as e:
-            logger.error(f"Ошибка загрузки Excel: {str(e)}\n{traceback.format_exc()}")
-            st.error(f"Ошибка при обработке Excel файла: {str(e)}")
+            log_error(f"Ошибка загрузки Excel: {str(e)}\n{traceback.format_exc()}")
             return pd.DataFrame()
 
 def to_excel(df: pd.DataFrame) -> bytes:
@@ -280,7 +293,7 @@ def main():
                         combined_data = pd.concat([combined_data, fbs_data], ignore_index=True)
                         logger.info(f"Загружены данные FBS: {len(fbs_data)} записей")
                     else:
-                        st.warning("Не удалось загрузить данные по FBS")
+                        log_warning("Не удалось загрузить данные по FBS")
 
                 if use_fbo:
                     fbo_data = DataLoader.load_with_retry(DATA_SOURCES["fbo"], DataLoader.load_large_json)
@@ -289,7 +302,7 @@ def main():
                         combined_data = pd.concat([combined_data, fbo_data], ignore_index=True)
                         logger.info(f"Загружены данные FBO: {len(fbo_data)} записей")
                     else:
-                        st.warning("Не удалось загрузить данные по FBO")
+                        log_warning("Не удалось загрузить данные по FBO")
 
                 if not combined_data.empty:
                     excel_data = DataLoader.load_with_retry(DATA_SOURCES["excel"], DataLoader.load_excel_data)
@@ -310,22 +323,25 @@ def main():
                             })
                         except Exception as e:
                             st.session_state.load_error = f"Ошибка объединения данных: {str(e)}"
+                            log_error(f"Ошибка объединения данных: {str(e)}")
                     else:
                         st.session_state.update({
                             'df': combined_data,
                             'data_loaded': True,
                             'load_error': "Не удалось загрузить Excel данные"
                         })
+                        log_warning("Не удалось загрузить Excel данные")
                 else:
                     st.session_state.load_error = "Не удалось загрузить основные данные"
+                    log_error("Не удалось загрузить основные данные")
                     
             except Exception as e:
                 st.session_state.load_error = f"Критическая ошибка: {str(e)}"
-                logger.error(f"Ошибка инициализации: {str(e)}\n{traceback.format_exc()}")
+                log_error(f"Критическая ошибка: {str(e)}\n{traceback.format_exc()}")
 
     # Обработка ошибок загрузки
     if st.session_state.load_error:
-        st.error(f"Ошибка загрузки данных: {st.session_state.load_error}")
+        st.warning("Произошла ошибка при загрузке данных. Проверьте вкладку 'Логи и ошибки'.")
         
         if st.button("Попробовать снова"):
             st.session_state.update({
@@ -359,11 +375,11 @@ def main():
             max_date = df['Дата'].max().date()
         else:
             min_date = max_date = date.today()
-            st.warning("Используются даты по умолчанию из-за отсутствия данных")
+            log_warning("Используются даты по умолчанию из-за отсутствия данных")
     except Exception as e:
-        logger.error(f"Ошибка получения дат: {str(e)}")
+        log_error(f"Ошибка получения дат: {str(e)}")
         min_date = max_date = date.today()
-        st.warning("Используются даты по умолчанию из-за ошибки")
+        log_warning("Используются даты по умолчанию из-за ошибки")
 
     # Фильтры в сайдбаре (продолжение)
     with st.sidebar:
@@ -387,8 +403,8 @@ def main():
                 st.warning("Автоматически исправлен порядок дат")
                 
         except Exception as e:
-            logger.error(f"Ошибка выбора даты: {str(e)}")
-            st.error("Ошибка при выборе дат. Используются даты по умолчанию.")
+            log_error(f"Ошибка выбора даты: {str(e)}")
+            st.warning("Ошибка при выборе дат. Используются даты по умолчанию.")
             start_date, end_date = min_date, max_date
         
         include_cancelled = st.checkbox("Учитывать отмены", False, key="include_cancelled")
@@ -410,6 +426,21 @@ def main():
         else:
             selected_warehouses = []
             st.warning("Данные о складах отсутствуют")
+
+    # Вкладки с аналитикой и логами
+    tab1, tab2, tab3 = st.tabs(["📈 Динамика продаж", "🔍 Детальный анализ", "🔔 Логи и ошибки"])
+
+    with tab3:
+        st.subheader("Логи и ошибки")
+        if st.session_state['error_log']:
+            for log_entry in st.session_state['error_log']:
+                st.text(log_entry)
+        else:
+            st.info("Ошибок и предупреждений пока нет.")
+        
+        if st.button("Очистить логи"):
+            st.session_state['error_log'] = []
+            st.rerun()
 
     # Применение фильтров
     if st.button("Применить фильтры") or 'filtered_df' not in st.session_state:
@@ -446,9 +477,8 @@ def main():
                         st.success(f"Загружено {len(st.session_state.filtered_df)} записей")
                         
             except Exception as e:
-                logger.error(f"Ошибка фильтрации: {str(e)}\n{traceback.format_exc()}")
-                st.error("Ошибка при фильтрации данных")
-                st.session_state.filtered_df = pd.DataFrame()
+                log_error(f"Ошибка фильтрации: {str(e)}\n{traceback.format_exc()}")
+                st.warning("Ошибка при фильтрации данных. Проверьте вкладку 'Логи и ошибки'.")
 
     # Получаем отфильтрованные данные
     filtered_df = st.session_state.get('filtered_df', pd.DataFrame())
@@ -475,11 +505,8 @@ def main():
         cols[3].metric("Средний СПП", f"{avg_spp:.2f}%" if not pd.isna(avg_spp) else "N/A")
         
     except Exception as e:
-        logger.error(f"Ошибка расчета показателей: {str(e)}")
-        st.error("Ошибка при расчете показателей")
-
-    # Дополнительные вкладки с аналитикой
-    tab1, tab2 = st.tabs(["📈 Динамика продаж", "🔍 Детальный анализ"])
+        log_error(f"Ошибка расчета показателей: {str(e)}")
+        st.warning("Ошибка при расчете показателей. Проверьте вкладку 'Логи и ошибки'.")
 
     with tab1:
         st.subheader("Динамика продаж")
@@ -521,8 +548,8 @@ def main():
                 st.plotly_chart(fig, use_container_width=True)
                 
         except Exception as e:
-            logger.error(f"Ошибка построения графика: {str(e)}")
-            st.error("Ошибка при отображении динамики продаж")
+            log_error(f"Ошибка построения графика: {str(e)}")
+            st.warning("Ошибка при отображении динамики продаж. Проверьте вкладку 'Логи и ошибки'.")
 
     with tab2:
         st.subheader("Детальный анализ")
@@ -631,8 +658,8 @@ def main():
                     st.warning(f"В данных отсутствует колонка {analysis_type}")
                 
         except Exception as e:
-            logger.error(f"Ошибка детального анализа: {str(e)}")
-            st.error("Ошибка при выполнении анализа")
+            log_error(f"Ошибка детального анализа: {str(e)}")
+            st.warning("Ошибка при выполнении анализа. Проверьте вкладку 'Логи и ошибки'.")
 
     # Экспорт данных
     with st.expander("📁 Экспорт данных"):
