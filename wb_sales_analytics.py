@@ -237,23 +237,53 @@ def main():
     
     # URL для загрузки данных
     DATA_SOURCES = {
-        "json": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json",
+        "fbs": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data.json",
+        "fbo": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/wb_dashboard/all_sales_data_FBO.json",
         "excel": "https://storage.yandexcloud.net/my-json-bucket-chat-wb/14_04_2025_07_26_%D0%9E%D0%B1%D1%89%D0%B8%D0%B5_%D1%85%D0%B0%D1%80%D0%B0%D0%BA%D1%82%D0%B5%D1%80%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B8_%D0%BE%D0%B4%D0%BD%D0%B8%D0%BC_%D1%84%D0%B0%D0%B9%D0%BB%D0%BE%D0%BC.xlsx"
     }
+
+    # Фильтры в сайдбаре
+    with st.sidebar:
+        st.header("⏱ Период анализа")
+        
+        # Фильтр по схемам продаж
+        st.header("📦 Схемы продаж")
+        use_fbs = st.checkbox("FBS", value=True, key="use_fbs")
+        use_fbo = st.checkbox("FBO", value=True, key="use_fbo")
+
+        if not (use_fbs or use_fbo):
+            st.warning("Выберите хотя бы одну схему продаж для загрузки данных.")
+            st.stop()
 
     # Загрузка данных
     if not st.session_state.data_loaded and st.session_state.load_error is None:
         with st.spinner("Загрузка данных. Пожалуйста, подождите..."):
             try:
-                json_data = DataLoader.load_with_retry(DATA_SOURCES["json"], DataLoader.load_large_json)
-                
-                if not json_data.empty:
+                combined_data = pd.DataFrame()
+
+                if use_fbs:
+                    fbs_data = DataLoader.load_with_retry(DATA_SOURCES["fbs"], DataLoader.load_large_json)
+                    if not fbs_data.empty:
+                        fbs_data['Схема продаж'] = 'FBS'
+                        combined_data = pd.concat([combined_data, fbs_data], ignore_index=True)
+                    else:
+                        st.warning("Не удалось загрузить данные по FBS")
+
+                if use_fbo:
+                    fbo_data = DataLoader.load_with_retry(DATA_SOURCES["fbo"], DataLoader.load_large_json)
+                    if not fbo_data.empty:
+                        fbo_data['Схема продаж'] = 'FBO'
+                        combined_data = pd.concat([combined_data, fbo_data], ignore_index=True)
+                    else:
+                        st.warning("Не удалось загрузить данные по FBO")
+
+                if not combined_data.empty:
                     excel_data = DataLoader.load_with_retry(DATA_SOURCES["excel"], DataLoader.load_excel_data)
                     
                     if not excel_data.empty:
                         try:
                             merged_df = pd.merge(
-                                json_data,
+                                combined_data,
                                 excel_data,
                                 on='Артикул',
                                 how='left'
@@ -268,7 +298,7 @@ def main():
                             st.session_state.load_error = f"Ошибка объединения данных: {str(e)}"
                     else:
                         st.session_state.update({
-                            'df': json_data,
+                            'df': combined_data,
                             'data_loaded': True,
                             'load_error': "Не удалось загрузить Excel данные"
                         })
@@ -321,10 +351,8 @@ def main():
         min_date = max_date = date.today()
         st.warning("Используются даты по умолчанию из-за ошибки")
 
-    # Фильтры в сайдбаре
+    # Фильтры в сайдбаре (продолжение)
     with st.sidebar:
-        st.header("⏱ Период анализа")
-        
         try:
             date_range = st.date_input(
                 "Выберите даты",
